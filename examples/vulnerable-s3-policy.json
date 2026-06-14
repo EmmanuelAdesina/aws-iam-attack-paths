@@ -1,0 +1,22 @@
+{
+  "_comment": "VULNERABLE POLICY — FOR EDUCATIONAL USE ONLY",
+  "_risk": "This policy grants public read access to the entire bucket. Anyone on the internet can read every object.",
+  "_attack_vector": "An attacker enumerating S3 buckets finds this bucket is public. No AWS credentials are required. Data exfiltration requires only a standard HTTP GET request.",
+  "_detection_gap": "S3 public access does not generate IAM CloudTrail events. The download appears as unauthenticated S3 data events, which require S3 data event logging to be enabled — often it is not.",
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadAccess",
+      "_sid_note": "The Sid name is misleading — 'PublicReadAccess' sounds intentional but is almost always a misconfiguration",
+      "Effect": "Allow",
+      "Principal": "*",
+      "_principal_note": "Wildcard principal: grants access to any entity, authenticated or not, on the internet",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::company-sensitive-data/*",
+      "_resource_note": "Wildcard on resource path: every object in the bucket is exposed"
+    }
+  ]
+}

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS IAM Attack Paths — Cloud Security Research</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #070a0f;
+      --surface:   #0d1117;
+      --surface2:  #161b22;
+      --border:    #21262d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --accent:    #f78166;
+      --purple:    #a78bfa;
+      --blue:      #58a6ff;
+      --green:     #3fb950;
+      --yellow:    #d29922;
+      --red:       #f85149;
+      --mono:      'IBM Plex Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(7, 10, 15, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 56px;
+    }
+    .nav-logo {
+      font-family: var(--mono); font-size: 13px; color: var(--accent);
+      letter-spacing: 0.05em;
+    }
+    .nav-links { display: flex; gap: 1.5rem; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: 13px;
+      font-family: var(--mono); letter-spacing: 0.03em;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    /* HERO */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center; padding: 6rem 2rem 4rem;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(247,129,102,0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(88,166,255,0.05) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.15em;
+      color: var(--accent); text-transform: uppercase; margin-bottom: 1.5rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .hero-eyebrow::before, .hero-eyebrow::after {
+      content: ''; display: block; height: 1px; width: 40px; background: var(--accent); opacity: 0.4;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 5rem);
+      font-weight: 700; letter-spacing: -0.03em;
+      line-height: 1.05; margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #e6edf3 0%, #8b949e 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-family: var(--mono); font-size: 14px; color: var(--muted);
+      margin-bottom: 2.5rem; letter-spacing: 0.02em;
+    }
+    .hero-desc {
+      max-width: 600px; color: var(--muted); font-size: 16px;
+      margin-bottom: 3rem; line-height: 1.8;
+    }
+    .hero-desc strong { color: var(--text); }
+
+    .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 3.5rem; }
+    .badge {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+      padding: 0.3rem 0.75rem; border-radius: 4px; border: 1px solid;
+    }
+    .badge-red    { color: var(--red);    border-color: rgba(248,81,73,0.3);  background: rgba(248,81,73,0.06); }
+    .badge-blue   { color: var(--blue);   border-color: rgba(88,166,255,0.3); background: rgba(88,166,255,0.06); }
+    .badge-purple { color: var(--purple); border-color: rgba(167,139,250,0.3);background: rgba(167,139,250,0.06); }
+    .badge-green  { color: var(--green);  border-color: rgba(63,185,80,0.3);  background: rgba(63,185,80,0.06); }
+
+    .scroll-hint {
+      font-family: var(--mono); font-size: 11px; color: var(--muted);
+      letter-spacing: 0.1em; animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+    /* CORE INSIGHT */
+    .insight-band {
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 3rem 2rem; text-align: center;
+    }
+    .insight-band blockquote {
+      max-width: 700px; margin: 0 auto;
+      font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+      font-weight: 500; line-height: 1.7; color: var(--text);
+    }
+    .insight-band blockquote em { color: var(--accent); font-style: normal; }
+    .insight-attribution {
+      font-family: var(--mono); font-size: 11px; color: var(--muted);
+      margin-top: 1rem; letter-spacing: 0.08em;
+    }
+
+    /* SECTIONS */
+    section { padding: 5rem 2rem; max-width: 1100px; margin: 0 auto; }
+
+    .section-label {
+      font-family: var(--mono); font-size: 11px; color: var(--accent);
+      letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 0.5rem;
+    }
+    .section-title {
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 700; letter-spacing: -0.02em;
+      margin-bottom: 1rem; color: var(--text);
+    }
+    .section-desc { color: var(--muted); max-width: 600px; font-size: 15px; margin-bottom: 3rem; }
+
+    /* ATTACK CHAIN */
+    .chain {
+      display: flex; flex-direction: column; gap: 0; max-width: 640px;
+    }
+    .chain-step {
+      display: flex; gap: 1.25rem; align-items: flex-start;
+      position: relative;
+    }
+    .chain-step:not(:last-child)::after {
+      content: ''; position: absolute;
+      left: 19px; top: 42px; bottom: -10px; width: 1px;
+      background: linear-gradient(to bottom, var(--border), transparent);
+    }
+    .chain-dot {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 12px; font-weight: 600;
+      border: 1px solid; margin-top: 2px;
+    }
+    .dot-red    { background: rgba(248,81,73,0.1);  border-color: rgba(248,81,73,0.4);  color: var(--red); }
+    .dot-yellow { background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.4); color: var(--yellow); }
+    .dot-purple { background: rgba(167,139,250,0.1);border-color: rgba(167,139,250,0.4);color: var(--purple); }
+    .dot-blue   { background: rgba(88,166,255,0.1); border-color: rgba(88,166,255,0.4); color: var(--blue); }
+    .dot-green  { background: rgba(63,185,80,0.1);  border-color: rgba(63,185,80,0.4);  color: var(--green); }
+    .dot-final  { background: rgba(248,81,73,0.2);  border-color: rgba(248,81,73,0.6);  color: var(--red); }
+
+    .chain-content { padding-bottom: 2rem; }
+    .chain-title { font-weight: 600; font-size: 15px; color: var(--text); margin-bottom: 0.25rem; }
+    .chain-desc { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+
+    /* ATTACK SURFACES */
+    .surfaces { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .surface-card { background: var(--surface); padding: 1.75rem; }
+    .surface-api {
+      font-family: var(--mono); font-size: 12px;
+      color: var(--accent); margin-bottom: 0.75rem;
+      display: inline-block;
+      background: rgba(247,129,102,0.08); border: 1px solid rgba(247,129,102,0.2);
+      padding: 0.2rem 0.5rem; border-radius: 3px;
+    }
+    .surface-title { font-weight: 600; font-size: 15px; margin-bottom: 0.5rem; }
+    .surface-desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .surface-risk {
+      margin-top: 0.75rem; font-family: var(--mono); font-size: 11px;
+      color: var(--red); letter-spacing: 0.05em;
+    }
+
+    /* POLICY COMPARISON */
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-radius: 8px; overflow: hidden; }
+    @media (max-width: 700px) { .comparison { grid-template-columns: 1fr; } }
+    .comparison-panel { background: var(--surface); padding: 1.5rem; }
+    .comparison-label {
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+      text-transform: uppercase; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+    }
+    .label-danger { color: var(--red); }
+    .label-safe   { color: var(--green); }
+    .label-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .dot-danger { background: var(--red); }
+    .dot-safe   { background: var(--green); }
+    pre {
+      font-family: var(--mono); font-size: 12px; line-height: 1.7;
+      color: #cdd9e5; overflow-x: auto;
+      background: var(--surface2); padding: 1rem; border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .tok-key    { color: var(--blue); }
+    .tok-str    { color: var(--green); }
+    .tok-danger { color: var(--red); }
+    .tok-safe   { color: var(--purple); }
+    .tok-comment{ color: var(--muted); font-style: italic; }
+
+    /* DEFENSIVE TABLE */
+    .def-table { width: 100%; border-collapse: collapse; }
+    .def-table th {
+      text-align: left; font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase;
+      padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+    }
+    .def-table td {
+      padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+      font-size: 14px; vertical-align: top;
+    }
+    .def-table tr:last-child td { border-bottom: none; }
+    .def-table tr:hover td { background: rgba(255,255,255,0.02); }
+    code {
+      font-family: var(--mono); font-size: 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 0.15em 0.4em; border-radius: 3px; color: var(--accent);
+    }
+
+    /* QUESTIONS */
+    .questions { display: flex; flex-direction: column; gap: 0; }
+    .question {
+      display: flex; gap: 1.25rem; padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+      align-items: flex-start;
+    }
+    .question:last-child { border-bottom: none; }
+    .question-num {
+      font-family: var(--mono); font-size: 13px; color: var(--muted);
+      min-width: 2ch; font-weight: 600; flex-shrink: 0; padding-top: 1px;
+    }
+    .question-text { font-size: 15px; color: var(--text); line-height: 1.5; }
+    .question-note { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 0.25rem; }
+
+    /* FILES */
+    .files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+    .file-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 1.25rem; text-decoration: none;
+      display: flex; gap: 1rem; align-items: flex-start;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .file-card:hover { border-color: var(--accent); background: rgba(247,129,102,0.03); }
+    .file-icon { font-size: 20px; flex-shrink: 0; }
+    .file-name { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 0.3rem; }
+    .file-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border); padding: 2.5rem 2rem;
+      text-align: center; font-family: var(--mono); font-size: 12px; color: var(--muted);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+    .footer-rule { width: 40px; height: 1px; background: var(--border); margin: 1rem auto; }
+
+    /* DIVIDER */
+    .full-divider { border: none; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-logo">aws-iam-attack-paths</span>
+  <div class="nav-links">
+    <a href="#attack-chain">Attack Chain</a>
+    <a href="#surfaces">Surfaces</a>
+    <a href="#policy">Policies</a>
+    <a href="#defense">Defense</a>
+    <a href="#files">Files</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-eyebrow">Cloud Security Research</div>
+  <h1>AWS IAM<br/><span>Attack Paths</span></h1>
+  <div class="hero-sub">// modeling identity as a directed trust graph</div>
+  <p class="hero-desc">
+    Most cloud breaches are not "hacks." They are <strong>trust design failures</strong> —
+    where the identity graph allowed a path from low privilege to full compromise
+    that was never modeled and therefore never closed.
+  </p>
+  <div class="badges">
+    <span class="badge badge-red">Threat Modeling</span>
+    <span class="badge badge-blue">AWS IAM / STS</span>
+    <span class="badge badge-purple">Privilege Escalation</span>
+    <span class="badge badge-green">Security Research</span>
+  </div>
+  <div class="scroll-hint">↓ scroll to explore</div>
+</div>
+
+<!-- INSIGHT BAND -->
+<div class="insight-band">
+  <blockquote>
+    The question is not <em>"who has permission?"</em><br/>
+    The question is <em>"who can become an identity that has permission?"</em>
+  </blockquote>
+  <div class="insight-attribution">— CORE PREMISE · AWS IAM ATTACK PATHS</div>
+</div>
+
+<!-- ATTACK CHAIN -->
+<section id="attack-chain">
+  <div class="section-label">01 · Attack Model</div>
+  <h2 class="section-title">The Six-Stage Compromise</h2>
+  <p class="section-desc">
+    No CVE. No software exploit. Every stage uses legitimate AWS APIs
+    against misconfigured trust relationships.
+  </p>
+
+  <div class="chain">
+    <div class="chain-step">
+      <div class="chain-dot dot-red">01</div>
+      <div class="chain-content">
+        <div class="chain-title">Initial Access — Credential Exposure</div>
+        <div class="chain-desc">Hardcoded key in GitHub · CI/CD log leak · .env committed to repo</div>
+      </div>
+    </div>
+    <div class="chain-step">
+      <div class="chain-dot dot-yellow">02</div>
+      <div class="chain-content">
+        <div class="chain-title">Enumeration — Trust Graph Mapping</div>
+        <div class="chain-desc">sts:GetCallerIdentity · iam:ListRoles · iam:SimulatePrincipalPolicy (silent)</div>
+      </div>
+    </div>
+    <div class="chain-step">
+      <div class="chain-dot dot-purple">03</div>
+      <div class="chain-content">
+        <div class="chain-title">Privilege Escalation — Four Paths</div>
+        <div class="chain-desc">AssumeRole chain · PassRole abuse · Resource policy bypass · Cross-account trust</div>
+      </div>
+    </div>
+    <div class="chain-step">
+      <div class="chain-dot dot-blue">04</div>
+      <div class="chain-content">
+        <div class="chain-title">Lateral Movement — Boundary Crossing</div>
+        <div class="chain-desc">Dev → Staging → Production · Single account → AWS Organization</div>
+      </div>
+    </div>
+    <div class="chain-step">
+      <div class="chain-dot dot-green">05</div>
+      <div class="chain-content">
+        <div class="chain-title">Persistence — Control Plane Implants</div>
+        <div class="chain-desc">Backdoor IAM user · Rogue trust policy on existing role · Second access key</div>
+      </div>
+    </div>
+    <div class="chain-step">
+      <div class="chain-dot dot-final">06</div>
+      <div class="chain-content">
+        <div class="chain-title">Impact — Full Cloud Compromise</div>
+        <div class="chain-desc">Data exfiltration · KMS key deletion · Cryptomining · Long-term persistence</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="full-divider" />
+
+<!-- ATTACK SURFACES -->
+<section id="surfaces">
+  <div class="section-label">02 · Attack Surfaces</div>
+  <h2 class="section-title">Four Entry Points, One Identity Graph</h2>
+  <p class="section-desc">
+    Each surface exploits a different layer of AWS authorization.
+    Together they form the complete IAM attack surface.
+  </p>
+
+  <div class="surfaces">
+    <div class="surface-card">
+      <span class="surface-api">sts:AssumeRole</span>
+      <div class="surface-title">Role Chain Exploitation</div>
+      <div class="surface-desc">
+        A low-privilege identity traverses trust edges to inherit progressively higher permissions.
+        Each hop is a legitimate API call — only the chain is anomalous.
+      </div>
+      <div class="surface-risk">↗ Primary escalation path</div>
+    </div>
+    <div class="surface-card">
+      <span class="surface-api">iam:PassRole</span>
+      <div class="surface-title">Privilege Injection</div>
+      <div class="surface-desc">
+        An attacker with PassRole launches compute with a privileged role attached.
+        Admin credentials are harvested from the Instance Metadata Service.
+      </div>
+      <div class="surface-risk">↗ Treat as AdministratorAccess</div>
+    </div>
+    <div class="surface-card">
+      <span class="surface-api">s3:GetBucketPolicy</span>
+      <div class="surface-title">Resource Policy Bypass</div>
+      <div class="surface-desc">
+        S3 bucket policies are evaluated independently of IAM identity policies.
+        A wildcard principal exposes data regardless of role permission tightness.
+      </div>
+      <div class="surface-risk">↗ Bypasses IAM entirely</div>
+    </div>
+    <div class="surface-card">
+      <span class="surface-api">Cross-Account Trust</span>
+      <div class="surface-title">Organizational Pivot</div>
+      <div class="surface-desc">
+        A trust policy referencing an external account enables lateral movement across account
+        boundaries. CloudTrail logs for this are split — correlation requires centralized logging.
+      </div>
+      <div class="surface-risk">↗ Org-wide blast radius</div>
+    </div>
+  </div>
+</section>
+
+<hr class="full-divider" />
+
+<!-- POLICY COMPARISON -->
+<section id="policy">
+  <div class="section-label">03 · Policy Analysis</div>
+  <h2 class="section-title">Vulnerable vs. Hardened</h2>
+  <p class="section-desc">
+    The difference between a trust policy that invites escalation and one that doesn't
+    is often a single line.
+  </p>
+
+  <div class="comparison">
+    <div class="comparison-panel">
+      <div class="comparison-label label-danger">
+        <span class="label-dot dot-danger"></span>
+        Vulnerable — Account-Root Trust
+      </div>
+      <pre><span class="tok-key">"Principal"</span>: {
+  <span class="tok-key">"AWS"</span>: <span class="tok-danger">"arn:aws:iam::
+    123456789012:root"</span>
+}
+
+<span class="tok-comment">// Trusts every identity
+// in the account.
+// Compromise any one
+// of them → role is yours.</span></pre>
+    </div>
+    <div class="comparison-panel">
+      <div class="comparison-label label-safe">
+        <span class="label-dot dot-safe"></span>
+        Hardened — Specific Role + Condition
+      </div>
+      <pre><span class="tok-key">"Principal"</span>: {
+  <span class="tok-key">"AWS"</span>: <span class="tok-safe">"arn:aws:iam::
+    123456789012:role/
+    CICDDeploymentRole"</span>
+},
+<span class="tok-key">"Condition"</span>: {
+  <span class="tok-key">"StringEquals"</span>: {
+    <span class="tok-key">"sts:ExternalId"</span>:
+      <span class="tok-safe">"unique-id-2024"</span>
+  }
+}</pre>
+    </div>
+  </div>
+</section>
+
+<hr class="full-divider" />
+
+<!-- DEFENSE -->
+<section id="defense">
+  <div class="section-label">04 · Defense</div>
+  <h2 class="section-title">Eight Questions That Define Your Attack Surface</h2>
+  <p class="section-desc">
+    If any answer is "I don't know," that gap is active attack surface.
+  </p>
+
+  <div class="questions">
+    <div class="question">
+      <div class="question-num">01</div>
+      <div>
+        <div class="question-text">Which identities have <code>sts:AssumeRole</code> on privileged roles?</div>
+        <div class="question-note">// Map the in-edges to every high-privilege role</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">02</div>
+      <div>
+        <div class="question-text">Can any low-privilege identity reach admin via role chaining?</div>
+        <div class="question-note">// Enumerate multi-hop paths, not just direct assumptions</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">03</div>
+      <div>
+        <div class="question-text">Where does <code>iam:PassRole</code> exist, and to which target role ARNs?</div>
+        <div class="question-note">// PassRole is a tier-one escalation primitive</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">04</div>
+      <div>
+        <div class="question-text">Which resource policies allow wildcard or external principals?</div>
+        <div class="question-note">// IAM Access Analyzer finds these automatically</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">05</div>
+      <div>
+        <div class="question-text">Are all cross-account trust relationships documented and reviewed?</div>
+        <div class="question-note">// Cross-account pivots split CloudTrail evidence</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">06</div>
+      <div>
+        <div class="question-text">Would you detect <code>iam:UpdateAssumeRolePolicy</code> at 2 AM?</div>
+        <div class="question-note">// The persistence signal most teams miss</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">07</div>
+      <div>
+        <div class="question-text">Would you detect a second access key added to an existing role?</div>
+        <div class="question-note">// Key rotation does not remove attacker-created keys</div>
+      </div>
+    </div>
+    <div class="question">
+      <div class="question-num">08</div>
+      <div>
+        <div class="question-text">Do your SCPs enforce what your IAM policies intend?</div>
+        <div class="question-note">// IAM expresses intent; SCPs enforce invariants</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="full-divider" />
+
+<!-- FILES -->
+<section id="files">
+  <div class="section-label">05 · Repository</div>
+  <h2 class="section-title">What's Inside</h2>
+  <p class="section-desc">Every file is a standalone artifact. Together they form a complete threat model.</p>
+
+  <div class="files-grid">
+    <a class="file-card" href="../SECURITY-INSIGHTS.md">
+      <div class="file-icon">🧠</div>
+      <div>
+        <div class="file-name">SECURITY-INSIGHTS.md</div>
+        <div class="file-desc">The mental model. IAM as a directed trust graph. Why checklists miss the point.</div>
+      </div>
+    </a>
+    <a class="file-card" href="../article/aws-iam-attack-paths.md">
+      <div class="file-icon">📄</div>
+      <div>
+        <div class="file-name">article/aws-iam-attack-paths.md</div>
+        <div class="file-desc">Full technical write-up. Six attack stages, CLI commands, real policy analysis.</div>
+      </div>
+    </a>
+    <a class="file-card" href="../diagrams/attack-paths.md">
+      <div class="file-icon">📊</div>
+      <div>
+        <div class="file-name">diagrams/attack-paths.md</div>
+        <div class="file-desc">Complete attack chain visualized as a Mermaid graph across six stages.</div>
+      </div>
+    </a>
+    <a class="file-card" href="../diagrams/iam-trust-graph.md">
+      <div class="file-icon">🕸️</div>
+      <div>
+        <div class="file-name">diagrams/iam-trust-graph.md</div>
+        <div class="file-desc">Trust topology across roles, accounts, pipelines, and SCP guardrails.</div>
+      </div>
+    </a>
+    <a class="file-card" href="../examples/trust-policy-examples.md">
+      <div class="file-icon">🔐</div>
+      <div>
+        <div class="file-name">examples/trust-policy-examples.md</div>
+        <div class="file-desc">Four trust policy patterns: from account-root vulnerability to MFA-gated hardened.</div>
+      </div>
+    </a>
+    <a class="file-card" href="../references/aws-documentation-links.md">
+      <div class="file-icon">📚</div>
+      <div>
+        <div class="file-name">references/aws-documentation-links.md</div>
+        <div class="file-desc">Official AWS docs mapped to attack context. Every reference has a threat model entry.</div>
+      </div>
+    </a>
+  </div>
+</section>
+
+<footer>
+  <div>AWS IAM Attack Paths — Cloud Security Research</div>
+  <div class="footer-rule"></div>
+  <div>For educational and security research purposes only · <a href="../README.md">README</a> · <a href="../SECURITY-INSIGHTS.md">Security Insights</a></div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "_comment": "HARDENED POLICY — Production-ready S3 access control pattern",
+  "_design_principles": [
+    "Specific principal: named role ARN only, no wildcards",
+    "Minimum required actions: GetObject only, no ListBucket or PutObject",
+    "Explicit deny block: prevents public access even if Block Public Access is misconfigured",
+    "VPC endpoint condition: restricts access to traffic originating from within the VPC"
+  ],
+
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowReadFromApplicationRole",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:role/SecureApplicationRole"
+      },
+      "_principal_note": "Specific role ARN only. No wildcard. No account-root reference.",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "_action_note": "Minimum required permission. No s3:ListBucket, s3:PutObject, or s3:DeleteObject unless explicitly required.",
+      "Resource": "arn:aws:s3:::company-sensitive-data/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceVpc": "vpc-0a1b2c3d4e5f67890"
+        },
+        "_condition_note": "Requests must originate from within the specified VPC via a VPC endpoint. External access is denied even with valid credentials."
+      }
+    },
+    {
+      "Sid": "ExplicitDenyPublicAccess",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::company-sensitive-data",
+        "arn:aws:s3:::company-sensitive-data/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      },
+      "_deny_note": "Deny all requests not using TLS. This is a defense-in-depth measure against HTTP data interception."
+    }
+  ]
+}
